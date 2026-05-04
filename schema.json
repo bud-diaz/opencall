@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/07/schema#",
+  "$id": "https://openclaw.dev/schemas/tool/v1",
+  "title": "OpenClaw Tool Schema",
+  "description": "Schema for defining external CLI tools invocable by the OpenClaw agent orchestrator.",
+  "version": "1.0.0",
+
+  "definitions": {
+
+    "template_string": {
+      "type": "string",
+      "description": "A string that may contain {{variable}} placeholders resolved at invocation time.",
+      "examples": ["{{input}}", "--model {{model}}", "{{working_dir}}/{{filename}}"]
+    },
+
+    "input_param": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["string", "integer", "boolean", "array"],
+          "description": "JSON type of this input parameter."
+        },
+        "description": { "type": "string" },
+        "required": {
+          "type": "boolean",
+          "default": true
+        },
+        "default": {
+          "description": "Default value when not supplied by the caller."
+        },
+        "enum": {
+          "type": "array",
+          "description": "Restrict to an enumerated set of allowed values.",
+          "minItems": 1
+        },
+        "min_length": { "type": "integer", "minimum": 0 },
+        "max_length": { "type": "integer", "minimum": 1 },
+        "pattern": {
+          "type": "string",
+          "description": "Regex the string value must match."
+        }
+      }
+    },
+
+    "retry_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "max_attempts": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10,
+          "default": 3,
+          "description": "Total invocation attempts including the first."
+        },
+        "initial_backoff_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "default": 1000,
+          "description": "Wait before the second attempt."
+        },
+        "backoff_multiplier": {
+          "type": "number",
+          "minimum": 1.0,
+          "maximum": 10.0,
+          "default": 2.0,
+          "description": "Exponential multiplier applied to backoff on each subsequent retry."
+        },
+        "max_backoff_ms": {
+          "type": "integer",
+          "minimum": 1000,
+          "default": 30000,
+          "description": "Upper bound on computed backoff regardless of multiplier."
+        },
+        "retryable_exit_codes": {
+          "type": "array",
+          "items": { "type": "integer" },
+          "default": [1, 124],
+          "description": "Non-zero exit codes that warrant a retry (e.g. 124 = timeout)."
+        },
+        "retryable_stderr_patterns": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Regex patterns matched against stderr that trigger a retry regardless of exit code.",
+          "examples": ["rate.?limit", "overloaded", "temporarily unavailable"]
+        }
+      }
+    },
+
+    "output_parser": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "passthrough",
+            "json_parse",
+            "json_extract",
+            "json_fence_extract",
+            "regex_extract",
+            "json_wrap"
+          ],
+          "description": "Strategy used to turn raw CLI stdout into a structured result object."
+        },
+        "config": {
+          "type": "object",
+          "description": "Parser-specific options. Contents depend on 'type'.",
+          "properties": {
+            "fields": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "[json_extract] Dot-notation field paths to pluck from parsed JSON output."
+            },
+            "pattern": {
+              "type": "string",
+              "description": "[regex_extract] Named-capture regex applied to full stdout."
+            },
+            "flags": {
+              "type": "string",
+              "description": "[regex_extract] Regex flags (e.g. 'i', 'gm').",
+              "default": ""
+            },
+            "fence_language": {
+              "type": "string",
+              "description": "[json_fence_extract] Expected language tag on the markdown fence (e.g. 'json').",
+              "default": "json"
+            },
+            "wrap_key": {
+              "type": "string",
+              "description": "[json_wrap] Top-level key under which raw stdout is stored.",
+              "default": "output"
+            },
+            "include_stderr": {
+              "type": "boolean",
+              "description": "[json_wrap] Whether to also include stderr in the result envelope.",
+              "default": false
+            }
+          }
+        },
+        "on_parse_error": {
+          "type": "string",
+          "enum": ["fail", "fallback_passthrough", "fallback_json_wrap"],
+          "default": "fallback_json_wrap",
+          "description": "Behaviour when the chosen parser cannot process the output."
+        }
+      }
+    },
+
+    "error_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exit_code_map": {
+          "type": "object",
+          "description": "Maps exit codes (as string keys) to symbolic outcome names.",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["success", "tool_error", "usage_error", "auth_error", "timeout", "interrupted", "unknown"]
+          },
+          "examples": [
+            { "0": "success", "1": "tool_error", "2": "usage_error", "124": "timeout", "130": "interrupted" }
+          ]
+        },
+        "stderr_overrides": {
+          "type": "array",
+          "description": "Patterns on stderr that force a specific outcome, overriding exit_code_map.",
+          "items": {
+            "type": "object",
+            "required": ["pattern", "outcome"],
+            "additionalProperties": false,
+            "properties": {
+              "pattern": { "type": "string", "description": "Regex matched against full stderr." },
+              "outcome": {
+                "type": "string",
+                "enum": ["success", "tool_error", "usage_error", "auth_error", "timeout", "interrupted", "unknown"]
+              },
+              "action": {
+                "type": "string",
+                "enum": ["retry", "fail_hard", "log_and_continue"],
+                "default": "fail_hard"
+              }
+            }
+          }
+        },
+        "default_outcome": {
+          "type": "string",
+          "enum": ["tool_error", "unknown"],
+          "default": "unknown",
+          "description": "Outcome assigned when exit code is not present in exit_code_map."
+        }
+      }
+    },
+
+    "log_format": {
+      "type": "object",
+      "description": "Schema for a single structured log entry emitted by the tool runner.",
+      "required": ["level", "timestamp", "tool", "event", "run_id"],
+      "additionalProperties": false,
+      "properties": {
+        "level":     { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+        "timestamp": { "type": "string", "format": "date-time", "description": "ISO 8601 UTC." },
+        "tool":      { "type": "string", "description": "Tool name as defined in the config." },
+        "event": {
+          "type": "string",
+          "enum": [
+            "invoke_start",
+            "invoke_end",
+            "retry_attempt",
+            "parse_start",
+            "parse_end",
+            "parse_error",
+            "timeout",
+            "error"
+          ]
+        },
+        "run_id":       { "type": "string", "description": "UUID v4 unique to this invocation chain." },
+        "attempt":      { "type": "integer", "minimum": 1, "description": "Which attempt (1-based)." },
+        "duration_ms":  { "type": "integer", "minimum": 0 },
+        "exit_code":    { "type": ["integer", "null"] },
+        "outcome":      { "type": ["string", "null"] },
+        "input_vars":   {
+          "type": "object",
+          "description": "Template variables passed to the tool (sanitised — no secrets).",
+          "additionalProperties": { "type": "string" }
+        },
+        "error": {
+          "type": "object",
+          "properties": {
+            "code":    { "type": "string" },
+            "message": { "type": "string" },
+            "detail":  { "type": "string" }
+          }
+        }
+      }
+    },
+
+    "tool_result": {
+      "type": "object",
+      "description": "Normalised result envelope returned to the agent after tool execution.",
+      "required": ["run_id", "tool", "success", "outcome", "parsed_output", "metadata"],
+      "additionalProperties": false,
+      "properties": {
+        "run_id":   { "type": "string" },
+        "tool":     { "type": "string" },
+        "success":  { "type": "boolean" },
+        "outcome": {
+          "type": "string",
+          "enum": ["success", "tool_error", "usage_error", "auth_error", "timeout", "interrupted", "unknown"]
+        },
+        "parsed_output": {
+          "type": ["object", "string", "null"],
+          "description": "Structured data returned by the output_parser hook."
+        },
+        "raw_stdout": { "type": "string" },
+        "raw_stderr": { "type": "string" },
+        "metadata": {
+          "type": "object",
+          "required": ["attempt", "duration_ms", "exit_code"],
+          "properties": {
+            "attempt":     { "type": "integer" },
+            "duration_ms": { "type": "integer" },
+            "exit_code":   { "type": ["integer", "null"] }
+          }
+        },
+        "error": {
+          "type": ["object", "null"],
+          "properties": {
+            "code":    { "type": "string" },
+            "message": { "type": "string" },
+            "detail":  { "type": "string" }
+          }
+        }
+      }
+    }
+  },
+
+  "type": "object",
+  "required": ["name", "description", "command", "args"],
+  "additionalProperties": false,
+
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]{0,63}$",
+      "description": "Snake-case identifier unique across the tool registry."
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10,
+      "maxLength": 500,
+      "description": "Human-readable explanation of what this tool does and when to use it."
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "default": "1.0.0",
+      "description": "Semver of this tool definition."
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Set to false to disable the tool without removing it from the registry."
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Free-form labels used for routing and filtering (e.g. ['codegen', 'refactor'])."
+    },
+
+    "command": {
+      "type": "string",
+      "description": "Executable name or absolute path. Resolved via PATH at invocation time.",
+      "examples": ["claude", "codex", "python3", "/usr/local/bin/mytool"]
+    },
+    "args": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/template_string" },
+      "description": "Ordered list of CLI arguments. Supports {{variable}} templates resolved from input_schema."
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/template_string" },
+      "description": "Additional environment variables injected into the subprocess."
+    },
+    "working_dir": {
+      "$ref": "#/definitions/template_string",
+      "description": "Working directory for the subprocess. Defaults to the agent's CWD."
+    },
+    "shell": {
+      "type": "boolean",
+      "default": false,
+      "description": "If true, run command inside a shell (sh -c). Prefer false for security."
+    },
+
+    "input_schema": {
+      "type": "object",
+      "description": "Declares template variables the caller must/may supply.",
+      "additionalProperties": { "$ref": "#/definitions/input_param" }
+    },
+
+    "timeout_ms": {
+      "type": "integer",
+      "minimum": 1000,
+      "maximum": 600000,
+      "default": 30000,
+      "description": "Hard wall-clock timeout in milliseconds. Triggers SIGTERM then SIGKILL."
+    },
+
+    "retry": { "$ref": "#/definitions/retry_policy" },
+    "output_parser": { "$ref": "#/definitions/output_parser" },
+    "error_policy": { "$ref": "#/definitions/error_policy" }
+  }
+}

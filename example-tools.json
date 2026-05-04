@@ -1,0 +1,272 @@
+{
+  "$schema": "./schema.json",
+  "registry_version": "1.0.0",
+  "tools": [
+
+    {
+      "name": "ask_claude",
+      "version": "1.0.0",
+      "description": "Invoke Claude Code CLI for complex, codebase-aware tasks: multi-file refactoring, deep debugging, and context-heavy transformations. Prefer this tool when the task exceeds the local model's reasoning depth.",
+      "enabled": true,
+      "tags": ["refactor", "debug", "analysis", "multi-file"],
+
+      "command": "claude",
+      "args": [
+        "--print",
+        "--output-format", "json",
+        "--system-prompt", "{{system_prompt}}",
+        "{{input}}"
+      ],
+      "env": {
+        "ANTHROPIC_API_KEY": "{{ANTHROPIC_API_KEY}}",
+        "NO_COLOR": "1"
+      },
+      "shell": false,
+
+      "input_schema": {
+        "input": {
+          "type": "string",
+          "description": "The full task prompt sent to Claude Code.",
+          "required": true,
+          "min_length": 10,
+          "max_length": 50000
+        },
+        "system_prompt": {
+          "type": "string",
+          "description": "Optional system-level instruction prepended to the conversation.",
+          "required": false,
+          "default": "You are a precise engineering assistant. Return all outputs as valid JSON matching the requested schema. Do not add commentary outside the JSON block."
+        },
+        "ANTHROPIC_API_KEY": {
+          "type": "string",
+          "description": "API key injected from the runtime secret store.",
+          "required": true
+        }
+      },
+
+      "timeout_ms": 120000,
+
+      "retry": {
+        "max_attempts": 3,
+        "initial_backoff_ms": 2000,
+        "backoff_multiplier": 2.0,
+        "max_backoff_ms": 30000,
+        "retryable_exit_codes": [1, 124],
+        "retryable_stderr_patterns": [
+          "rate.?limit",
+          "overloaded",
+          "529",
+          "temporarily unavailable",
+          "connection reset"
+        ]
+      },
+
+      "output_parser": {
+        "type": "json_fence_extract",
+        "config": {
+          "fence_language": "json",
+          "fields": ["summary", "changes", "code", "notes", "files_modified"]
+        },
+        "on_parse_error": "fallback_json_wrap"
+      },
+
+      "error_policy": {
+        "exit_code_map": {
+          "0":   "success",
+          "1":   "tool_error",
+          "2":   "usage_error",
+          "124": "timeout",
+          "130": "interrupted"
+        },
+        "stderr_overrides": [
+          {
+            "pattern": "invalid.?api.?key|authentication|unauthorized",
+            "outcome": "auth_error",
+            "action": "fail_hard"
+          },
+          {
+            "pattern": "rate.?limit|overloaded",
+            "outcome": "tool_error",
+            "action": "retry"
+          }
+        ],
+        "default_outcome": "unknown"
+      }
+    },
+
+    {
+      "name": "ask_codex",
+      "version": "1.0.0",
+      "description": "Invoke the OpenAI Codex CLI for fast, self-contained code generation: new files, tests, boilerplate, and small utilities. Prefer this tool when speed matters and the task does not require deep existing-codebase context.",
+      "enabled": true,
+      "tags": ["codegen", "tests", "boilerplate", "fast"],
+
+      "command": "codex",
+      "args": [
+        "--quiet",
+        "--output-format", "json",
+        "--prompt", "{{input}}"
+      ],
+      "env": {
+        "OPENAI_API_KEY": "{{OPENAI_API_KEY}}",
+        "NO_COLOR": "1"
+      },
+      "shell": false,
+
+      "input_schema": {
+        "input": {
+          "type": "string",
+          "description": "The code-generation prompt sent to Codex.",
+          "required": true,
+          "min_length": 5,
+          "max_length": 8000
+        },
+        "OPENAI_API_KEY": {
+          "type": "string",
+          "description": "API key injected from the runtime secret store.",
+          "required": true
+        }
+      },
+
+      "timeout_ms": 45000,
+
+      "retry": {
+        "max_attempts": 3,
+        "initial_backoff_ms": 1000,
+        "backoff_multiplier": 2.0,
+        "max_backoff_ms": 16000,
+        "retryable_exit_codes": [1, 124],
+        "retryable_stderr_patterns": [
+          "rate.?limit",
+          "503",
+          "timeout",
+          "connection reset"
+        ]
+      },
+
+      "output_parser": {
+        "type": "json_parse",
+        "config": {
+          "fields": ["code", "language", "filename", "explanation"]
+        },
+        "on_parse_error": "fallback_json_wrap"
+      },
+
+      "error_policy": {
+        "exit_code_map": {
+          "0":   "success",
+          "1":   "tool_error",
+          "2":   "usage_error",
+          "124": "timeout",
+          "130": "interrupted"
+        },
+        "stderr_overrides": [
+          {
+            "pattern": "invalid.?api.?key|unauthorized|401",
+            "outcome": "auth_error",
+            "action": "fail_hard"
+          },
+          {
+            "pattern": "rate.?limit|429",
+            "outcome": "tool_error",
+            "action": "retry"
+          }
+        ],
+        "default_outcome": "unknown"
+      }
+    },
+
+    {
+      "_comment": "Stub showing extensibility — a third-party shell tool fitting the same schema.",
+      "name": "run_shell_tool",
+      "version": "1.0.0",
+      "description": "Generic extensibility example: run an arbitrary CLI tool with a templated command. Drop this stub into the registry and replace fields for any future tool (linters, formatters, static analysers, custom scripts).",
+      "enabled": false,
+      "tags": ["generic", "extensible"],
+
+      "command": "{{tool_bin}}",
+      "args": ["{{args}}"],
+      "shell": false,
+
+      "input_schema": {
+        "tool_bin": {
+          "type": "string",
+          "description": "Executable name or absolute path of the tool to run.",
+          "required": true
+        },
+        "args": {
+          "type": "string",
+          "description": "Argument string passed verbatim to the tool.",
+          "required": false,
+          "default": ""
+        }
+      },
+
+      "timeout_ms": 30000,
+
+      "retry": {
+        "max_attempts": 2,
+        "initial_backoff_ms": 500,
+        "backoff_multiplier": 2.0,
+        "max_backoff_ms": 5000,
+        "retryable_exit_codes": [1, 124]
+      },
+
+      "output_parser": {
+        "type": "passthrough",
+        "on_parse_error": "fallback_json_wrap"
+      },
+
+      "error_policy": {
+        "exit_code_map": {
+          "0":   "success",
+          "124": "timeout",
+          "130": "interrupted"
+        },
+        "default_outcome": "tool_error"
+      }
+    }
+  ],
+
+  "logging": {
+    "format": "json",
+    "level": "info",
+    "example_entry": {
+      "level": "info",
+      "timestamp": "2026-05-04T12:00:00.000Z",
+      "tool": "ask_claude",
+      "event": "invoke_end",
+      "run_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+      "attempt": 1,
+      "duration_ms": 4321,
+      "exit_code": 0,
+      "outcome": "success",
+      "input_vars": {
+        "system_prompt": "[redacted — default used]"
+      },
+      "error": null
+    }
+  },
+
+  "result_envelope_example": {
+    "run_id": "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+    "tool": "ask_claude",
+    "success": true,
+    "outcome": "success",
+    "parsed_output": {
+      "summary": "Converted all callback-based database calls to async/await.",
+      "changes": "Modified 6 files under src/db/",
+      "code": "async function getUser(id) {\n  return await db.users.findOne({ id });\n}",
+      "notes": "Ensure Node >= 14 for top-level await support.",
+      "files_modified": ["src/db/users.js", "src/db/posts.js"]
+    },
+    "raw_stdout": "```json\n{ ... }\n```",
+    "raw_stderr": "",
+    "metadata": {
+      "attempt": 1,
+      "duration_ms": 4321,
+      "exit_code": 0
+    },
+    "error": null
+  }
+}

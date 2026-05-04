@@ -1,0 +1,71 @@
+{
+  "schema_version": "1.0.0",
+  "tools": [
+    {
+      "name": "route_ai_task",
+      "version": "1.0.0",
+      "description": "Routes an AI coding task to the optimal execution path (local_llm, claude, or codex) based on complexity, urgency, and context signals. Invokes the selected CLI tool, parses its output, and returns a structured JSON result. Every call is logged to memory/tool-calls.jsonl.",
+      "enabled": true,
+      "tags": ["routing", "orchestration", "codegen", "refactor"],
+
+      "invocation": {
+        "type": "subprocess",
+        "command": "npm",
+        "args": ["run", "openclaw:runtime"],
+        "working_dir": ".",
+        "input_format": "json_stdin",
+        "output_format": "json_stdout"
+      },
+
+      "input_schema": {
+        "description": {
+          "type": "string",
+          "required": true,
+          "description": "Natural-language description of the task to route."
+        },
+        "prompt": {
+          "type": "string",
+          "required": false,
+          "description": "Full prompt to send to the selected tool. Defaults to description if omitted."
+        },
+        "complexity": {
+          "type": "integer",
+          "required": false,
+          "default": 5,
+          "description": "Estimated task complexity 0–10. Higher = more likely to route to Claude."
+        },
+        "file_involvement": {
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "True if the task involves reading or modifying existing files."
+        },
+        "context_size": {
+          "type": "integer",
+          "required": false,
+          "default": 1000,
+          "description": "Estimated prompt + context token count."
+        },
+        "urgency": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "required": false,
+          "default": "medium",
+          "description": "High urgency favours faster tools (local, codex); low favours thoroughness (claude)."
+        }
+      },
+
+      "output_schema": {
+        "run_id":        { "type": "string",  "description": "UUID for this invocation." },
+        "timestamp":     { "type": "string",  "description": "ISO 8601 UTC." },
+        "selected_path": { "type": "string",  "description": "local_llm | claude | codex" },
+        "success":       { "type": "boolean" },
+        "response":      { "type": "string",  "description": "Human-readable summary of the result." },
+        "decision":      { "type": "object",  "description": "Full Decision object from the routing engine." },
+        "cli_result":    { "type": "object",  "description": "ToolResult envelope. null when path is local_llm." },
+        "parsed":        { "type": "object",  "description": "ParsedOutput envelope. null when path is local_llm." },
+        "error":         { "type": "string",  "description": "Error message if success=false, else null." }
+      }
+    }
+  ]
+}

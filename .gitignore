@@ -1,3 +1,6 @@
+# OpenClaw memory log — per-run call records, not source
+memory/*.jsonl
+
 # Logs
 logs
 *.log

@@ -153,3 +153,69 @@ This is NOT a single-model system.
 It is:
 	A coordinated multi-agent execution environment with tool-based specialization
 ---
+
+## 13. Runtime — Manual Testing
+
+### Install dependencies
+```bash
+npm install
+```
+
+### Run the runtime (pipe JSON via stdin)
+```bash
+# local_llm path — no CLI is called, instant response
+echo '{"description":"Explain what closures are","complexity":1,"urgency":"low"}' \
+  | npm run openclaw:runtime
+
+# codex path — requires OPENAI_API_KEY and the codex CLI
+echo '{
+  "description": "Generate unit tests for UserService",
+  "prompt": "Write Jest unit tests for a UserService class with getUser(id) and createUser(data) methods.",
+  "complexity": 4,
+  "file_involvement": true,
+  "context_size": 2000,
+  "urgency": "medium"
+}' | npm run openclaw:runtime
+
+# claude path — requires ANTHROPIC_API_KEY and the claude CLI
+echo '{
+  "description": "Refactor auth module to use JWT",
+  "prompt": "Refactor this Express session-based auth to use JWT tokens instead.",
+  "complexity": 8,
+  "file_involvement": true,
+  "context_size": 12000,
+  "urgency": "low"
+}' | npm run openclaw:runtime
+
+# pass JSON as argv instead of stdin
+npm run openclaw:runtime -- '{"description":"List array methods in JS","complexity":1}'
+```
+
+### Inspect the memory log
+```bash
+# All calls (one JSON object per line)
+cat memory/tool-calls.jsonl
+
+# Pretty-print the last call
+tail -1 memory/tool-calls.jsonl | node -e "process.stdin.on('data',d=>console.log(JSON.stringify(JSON.parse(d),null,2)))"
+```
+
+### Redirect stderr to suppress logs (stdout only)
+```bash
+echo '{"description":"Explain closures","complexity":1}' \
+  | npm run openclaw:runtime 2>/dev/null
+```
+
+### Environment variables
+| Variable | Required for |
+|---|---|
+| `ANTHROPIC_API_KEY` | Claude path |
+| `OPENAI_API_KEY` | Codex path |
+
+Neither is needed for the `local_llm` path.
+
+### Tool registration (.openclaw/tools.json)
+OpenClaw reads `.openclaw/tools.json` to discover the `route_ai_task` tool.
+The tool invokes `npm run openclaw:runtime`, passes JSON on stdin, and reads
+the structured JSON result from stdout.
+---

@@ -1,0 +1,16 @@
+{
+  "name": "openclaw",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "OpenClaw: multi-agent AI tool routing runtime",
+  "scripts": {
+    "openclaw:runtime": "tsx src/openclaw-runtime.ts",
+    "decision-engine": "tsx decision-engine.ts",
+    "cli-wrapper": "tsx cli-wrapper.ts",
+    "output-parser": "tsx output-parser.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

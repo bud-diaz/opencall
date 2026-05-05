@@ -1,155 +1,135 @@
-# OpenClaw Tool-Calling Architecture
-## Claude Code + Codex via Terminal (Hybrid Local Stack)
-## 1. Overview
-This system treats external AI providers (Claude Code, Codex) as **tools**, not primary models.
-OpenClaw acts as:
-- Orchestrator
-- Router
-- Execution engine
-Local LLM (Ollama) acts as:
-- Primary reasoning layer
-- Decision-maker for tool usage
-External CLIs act as:
-- Specialized execution engines
+# Pearl Crew — Discord Multi-Agent Bot
+
+A 5-agent local AI crew running on Ollama, accessible from anywhere via Discord.
+
+## Agents
+
+| Agent | Role | Default Model |
+|-------|------|---------------|
+| Pearl | Orchestrator & Visionary | hermes3 |
+| Corey | Creative & Artist | hermes3 |
+| Midas | Marketing & Brand Builder | hermes3 |
+| Rain  | Technical Engineer | hermes3 |
+| Levy  | Monetization, Legal & Compliance | hermes3 |
+
 ---
-## 2. Core Philosophy
-> "Cheap brain. Expensive specialists on demand."
-- Local model handles:
-  - Planning
-  - Lightweight reasoning
-  - Task decomposition
-- Claude Code handles:
-  - Deep refactors
-  - Multi-file edits
-  - Codebase-aware transformations
-- Codex handles:
-  - Fast generation
-  - Boilerplate
-  - Tests / snippets
+
+## Setup
+
+### 1. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Pull your Ollama model
+
+```bash
+ollama pull hermes3
+# or whatever model you're using
+```
+
+### 3. Create your Discord bot
+
+1. Go to https://discord.com/developers/applications
+2. New Application → Bot → copy the token
+3. Enable **Message Content Intent** under Bot → Privileged Gateway Intents
+4. Invite bot to your server with these permissions:
+   - Read Messages / View Channels
+   - Send Messages
+   - Read Message History
+
+### 4. Configure environment
+
+```bash
+cp .env.example .env
+# Edit .env and paste your DISCORD_TOKEN
+```
+
+### 5. Create Discord channels
+
+Create these text channels in your server (exact names):
+- `#pearl`
+- `#corey`
+- `#midas`
+- `#rain`
+- `#levy`
+- `#hub`
+
+### 6. Run the bot
+
+```bash
+python bot.py
+```
+
 ---
-## 3. System Architecture
-User Input
-↓
-OpenClaw Agent Loop
-↓
-Local Model (Ollama)
-↓ decision
-Tool Call OR Local Execution
-↓
-[ Tool Layer ]
-├── Claude CLI
-└── Codex CLI
-↓
-Output Parsing Layer
-↓
-Memory / Context Store
-↓
-Final Response
+
+## Usage
+
+**Direct agent channels** — talk directly to one agent:
+```
+#rain → Rain, how do I set up a systemd service for this bot?
+#midas → What would a launch tweet thread for Paperweight look like?
+```
+
+**Hub channel** — Pearl reads your message and routes it:
+```
+#hub → I need help figuring out pricing for my SaaS product
+→ routed to Levy (monetization question)
+```
+
+**Commands** — works in any channel:
+```
+!crew agents           — list all agents and current models
+!crew model rain llama3.1  — hot-swap Rain's model
+!crew clear            — wipe your conversation history
+!crew history          — see how much history you have
+!crew help             — show all commands
+```
+
 ---
-## 4. Tool Definitions
-### 4.1 Claude Tool
-Command:
-claude
-Usage:
-claude “”
-Purpose:
-- Complex refactoring
-- Codebase reasoning
-- Multi-step transformations
+
+## File Structure
+
+```
+pearl-crew/
+├── bot.py          # Entry point, Discord event handling
+├── agents.py       # Agent definitions, Ollama loop, tool execution
+├── router.py       # Pearl's routing logic for hub channel
+├── history.py      # Per-user conversation history (persisted to JSON)
+├── tools.py        # Tool schemas + execution (search, files, shell, model switch)
+├── commands.py     # !crew slash-style commands
+├── workspace/      # Files agents can read/write
+└── data/history/   # Persisted conversation history per user
+```
+
 ---
-### 4.2 Codex Tool
-Command:
-codex
-Usage:
-codex “”
-Purpose:
-- Quick code generation
-- Test creation
-- Small utilities
+
+## Swapping Models Per Agent
+
+Edit `agents.py` and change the `model=` line for any agent, or use the live command:
+
+```
+!crew model rain llama3.1:70b
+!crew model pearl mistral-small
+```
+
 ---
-## 5. Tool Config (Example)
-```json
-{
-  "tools": [
-    {
-      "name": "ask_claude",
-      "description": "Use Claude Code for deep code analysis and refactoring",
-      "command": "claude",
-      "args": ["{{input}}"]
-    },
-    {
-      "name": "ask_codex",
-      "description": "Use Codex for fast code generation and lightweight tasks",
-      "command": "codex",
-      "args": ["{{input}}"]
-    }
-  ]
-}
-6. Decision Rules (Baseline)
-Use LOCAL MODEL when:
-	•	Task is simple
-	•	Requires explanation
-	•	No file system interaction needed
-	•	Planning or breakdown is required
-Use CLAUDE when:
-	•	Multi-file edits required
-	•	Refactoring existing code
-	•	Debugging complex logic
-	•	Context-heavy reasoning needed
-Use CODEX when:
-	•	Generating new code from scratch
-	•	Writing tests
-	•	Creating small utilities
-	•	Fast iteration needed
-7. Output Handling
-Problem:
-	•	CLI outputs are unstructured
-Solution:
-	•	Enforce structured responses
-Example Prompt Wrapper:
-Return output in JSON:
-{
-  "summary": "...",
-  "changes": "...",
-  "code": "...",
-  "notes": "..."
-}
-Optional:
-	•	Pipe through parser
-	•	Normalize before returning to agent loop
-8. Context Strategy
-Each CLI call is stateless.
-To maintain continuity:
-	•	Pass relevant context in every call
-	•	Store summaries in memory layer
-	•	Optionally log to:
-	•	Markdown files
-	•	Obsidian vault
-	•	SQLite store
-9. Rate Limiting Strategy
-	•	Avoid repeated calls
-	•	Cache responses when possible
-	•	Add cooldown logic:
-	•	Max X tool calls per task
-	•	Escalation only when needed
-10. Future Enhancements
-	•	Automatic tool selection (confidence scoring)
-	•	Tool chaining (Claude → Codex → Local)
-	•	Structured diff parsing
-	•	File-aware execution context
-	•	Parallel tool execution
-11. Example Flow
-User:
-“Refactor this project to use async/await”
-Flow:
-	1.	Local model analyzes complexity
-	2.	Determines task is complex
-	3.	Calls ask_claude
-	4.	Claude returns refactored code
-	5.	Output parsed + stored
-	6.	Response returned to user
-12. Key Takeaway
-This is NOT a single-model system.
-It is:
-	A coordinated multi-agent execution environment with tool-based specialization
+
+## Recommended Models (Ollama)
+
+For tool calling + less restriction:
+- `hermes3` — NousResearch, strong tool use, less filtered
+- `llama3.1` — strong tool calling natively
+- `mistral-small` — fast, decent tools
+- `qwen2.5` — strong tool use, fast
+
 ---
+
+## Notes
+
+- History is global per user — all agents share your conversation context
+- History is capped at 40 messages to prevent context bloat
+- File read/write is sandboxed to `./workspace/` 
+- Shell commands have a basic blocklist — expand in `tools.py` as needed
+- DuckDuckGo search requires no API key
